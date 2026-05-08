@@ -32,6 +32,11 @@ public partial class App : System.Windows.Application
     private bool _mb4Held;
     private bool _mb5Held;
 
+    // Long-press detection for "convert to rule"
+    private DateTime? _createPressStart;
+    private Win32.POINT _createPressPos;
+    private StickerWindow? _createPressSticker;
+
     internal bool RecordingHotkey;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -48,6 +53,25 @@ public partial class App : System.Windows.Application
         SetupTray();
         InstallHooks();
         RestoreStickers();
+
+        // Require task creation on startup if no active tasks exist
+        bool hasActiveTasks = _stickers.Any(s => s.Data.Tasks.Any(t => !t.Done));
+        if (!hasActiveTasks)
+        {
+            var prompt = new StartupPromptWindow(_stickers);
+            if (prompt.ShowDialog() == true && !string.IsNullOrWhiteSpace(prompt.ResultText))
+            {
+                if (prompt.CreateNew)
+                {
+                    CreateSticker(GetScreenCenter(), prompt.ResultText);
+                }
+                else if (prompt.ExistingIndex is { } idx && idx >= 0 && idx < _stickers.Count)
+                {
+                    _stickers[idx].AddTask(prompt.ResultText);
+                }
+            }
+        }
+
         if (Settings.RubberBallEnabled) RubberBallWindow.Spawn();
     }
 
@@ -113,9 +137,9 @@ public partial class App : System.Windows.Application
             bool justMb2 = false, justMb3 = false, justMb4 = false, justMb5 = false;
 
             if (msg == Win32.WM_RBUTTONDOWN) { _mb2Held = true;  justMb2 = true; }
-            if (msg == Win32.WM_RBUTTONUP)   { _mb2Held = false; }
+            if (msg == Win32.WM_RBUTTONUP)   { EndCreatePress(); _mb2Held = false; }
             if (msg == Win32.WM_MBUTTONDOWN) { _mb3Held = true;  justMb3 = true; }
-            if (msg == Win32.WM_MBUTTONUP)   { _mb3Held = false; }
+            if (msg == Win32.WM_MBUTTONUP)   { EndCreatePress(); _mb3Held = false; }
             if (msg == Win32.WM_XBUTTONDOWN)
             {
                 if (Win32.HiWord(s.mouseData) == Win32.XBUTTON1) { _mb4Held = true;  justMb4 = true; }
@@ -123,6 +147,7 @@ public partial class App : System.Windows.Application
             }
             if (msg == Win32.WM_XBUTTONUP)
             {
+                EndCreatePress();
                 if (Win32.HiWord(s.mouseData) == Win32.XBUTTON1) _mb4Held = false;
                 if (Win32.HiWord(s.mouseData) == Win32.XBUTTON2) _mb5Held = false;
             }
@@ -135,7 +160,12 @@ public partial class App : System.Windows.Application
                 var  pt    = s.pt;
 
                 if (CheckCombo(Settings.HotkeyCreate, justMb2, justMb3, justMb4, justMb5, ctrl, shift, alt))
-                    Dispatcher.BeginInvoke(() => TryCreateSticker(new System.Windows.Point(pt.X, pt.Y)));
+                {
+                    // Defer creation to button-up so we can detect long-press over a sticker
+                    _createPressStart = DateTime.UtcNow;
+                    _createPressPos   = pt;
+                    _createPressSticker = GetStickerAtCursor();
+                }
                 else if (CheckCombo(Settings.HotkeyComplete, justMb2, justMb3, justMb4, justMb5, ctrl, shift, alt))
                     Dispatcher.BeginInvoke(() => GetStickerAtCursor()?.HandleMouse5());
                 else if (CheckCombo(Settings.HotkeyClearDesk, justMb2, justMb3, justMb4, justMb5, ctrl, shift, alt))
@@ -154,6 +184,28 @@ public partial class App : System.Windows.Application
                 Dispatcher.BeginInvoke(ForceEndAllDrags);
         }
         return Win32.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+    }
+
+    private void EndCreatePress()
+    {
+        if (_createPressStart == null) return;
+        bool wasLong = (DateTime.UtcNow - _createPressStart.Value).TotalMilliseconds >= 600;
+        var stickerNow = GetStickerAtCursor();
+        var targetSticker = _createPressSticker;
+        var targetPos = _createPressPos;
+        _createPressStart = null;
+        _createPressSticker = null;
+
+        if (wasLong && targetSticker != null && targetSticker == stickerNow)
+        {
+            // Long press over sticker -> convert to rule
+            Dispatcher.BeginInvoke(() => targetSticker.ConvertToRule());
+        }
+        else if (!wasLong && targetSticker == null)
+        {
+            // Short press over empty space -> create sticker
+            Dispatcher.BeginInvoke(() => TryCreateSticker(new System.Windows.Point(targetPos.X, targetPos.Y)));
+        }
     }
 
     private bool CheckCombo(string combo, bool justMb2, bool justMb3, bool justMb4, bool justMb5,
@@ -287,7 +339,7 @@ public partial class App : System.Windows.Application
         CreateSticker(spawnPoint);
     }
 
-    private void CreateSticker(System.Windows.Point spawnPoint)
+    private void CreateSticker(System.Windows.Point spawnPoint, string? initialTask = null)
     {
         var data = new StickerData
         {
@@ -295,6 +347,12 @@ public partial class App : System.Windows.Application
             Y           = spawnPoint.Y - 39,
             AccentColor = Settings.DefaultAccentColor
         };
+        if (!string.IsNullOrWhiteSpace(initialTask))
+        {
+            var text = initialTask.Trim();
+            text = text.Length > 0 ? char.ToUpper(text[0]) + text[1..] : text;
+            data.Tasks.Add(new TaskItem { Text = text });
+        }
         StickerStore.Save(data);
         OpenSticker(data);
         UpdateTrayTooltip();

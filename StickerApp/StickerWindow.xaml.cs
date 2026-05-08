@@ -18,6 +18,7 @@ namespace StickerApp;
 public partial class StickerWindow : Window
 {
     public event Action<StickerWindow>? Destroyed;
+    public StickerData Data => _data;
 
     private readonly StickerData   _data;
 
@@ -102,6 +103,7 @@ public partial class StickerWindow : Window
         Height = data.Height;
 
         ApplyAccentColor();
+        if (_data.IsRule) ApplyRuleMode();
         _outlineIndex = Array.IndexOf(_outlineColorNames, _data.OutlineColor ?? "");
         if (_outlineIndex >= 0) _outlineBrush.Color = _outlineColors[_outlineIndex];
         UpdateDoneMarkBrush();
@@ -145,11 +147,19 @@ public partial class StickerWindow : Window
             StartIdle();
             TimerText.Foreground = _timerBrush;
             _timerDispatcher.Tick += (_, _) => UpdateTimer();
-            UpdateTimer();
-            _timerDispatcher.Start();
+            if (_data.IsActive)
+            {
+                UpdateTimer();
+                _timerDispatcher.Start();
+            }
+            else
+            {
+                TimerText.Text = "--:--";
+            }
             UpdateAllDoneState();
             UpdatePendingText();
             UpdateResetDots();
+            UpdateToggleVisual();
             ContentPanel.SizeChanged += (_, _) => FitHeight();
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render, FitHeight);
         };
@@ -469,6 +479,7 @@ public partial class StickerWindow : Window
     // ── Timer ─────────────────────────────────────────────────────────────
     private void UpdateTimer()
     {
+        if (!_data.IsActive) return;
         if (_allDone) return;
 
         var elapsed = DateTime.UtcNow - _data.CreatedAt;
@@ -503,9 +514,48 @@ public partial class StickerWindow : Window
         {
             LockIcon.Visibility = Visibility.Collapsed;
             _timerLevel = -1;
+            if (_data.IsActive)
+            {
+                _timerDispatcher.Start();
+                UpdateTimer();
+            }
+            else
+            {
+                TimerText.Text = "--:--";
+            }
+        }
+    }
+
+    private void OnActiveToggleClick(object sender, RoutedEventArgs e)
+    {
+        _data.IsActive = !_data.IsActive;
+        StickerStore.Save(_data);
+
+        if (_data.IsActive)
+        {
+            _data.CreatedAt = DateTime.UtcNow;
+            _timerLevel = -1;
             _timerDispatcher.Start();
             UpdateTimer();
         }
+        else
+        {
+            _timerDispatcher.Stop();
+            TimerText.Text = "--:--";
+            TimerText.Effect = null;
+            _timerBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+            _timerBrush.Color = Color.FromRgb(0x88, 0x88, 0x99);
+            RefreshBtn.Visibility = Visibility.Collapsed;
+        }
+        UpdateToggleVisual();
+    }
+
+    private void UpdateToggleVisual()
+    {
+        ActiveToggle.Content = _data.IsActive ? "\u25CF" : "\u25CB";
+        ActiveToggle.Foreground = _data.IsActive
+            ? new SolidColorBrush(Color.FromRgb(0x4A, 0xDE, 0x80))
+            : new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));
     }
 
     private void UpdateResetDots()
@@ -984,6 +1034,12 @@ public partial class StickerWindow : Window
     private void FitHeight()
     {
         if (_isCollapsed) return;
+        if (_data.IsRule)
+        {
+            Height = Math.Max(MinHeight, 150);
+            _fullHeight = Height;
+            return;
+        }
         // StickerBorder.Margin=20 (×2=40) + ContentPanel.Margin top=4 bottom=24 = 68 ≈ 70
         const double Overhead = 70;
         double preferred = ContentPanel.ActualHeight + Overhead;
@@ -1018,7 +1074,7 @@ public partial class StickerWindow : Window
 
     private void CollapseSticker()
     {
-        if (_isCollapsed || _isDestroying || _spawning) return;
+        if (_isCollapsed || _isDestroying || _spawning || _data.IsRule) return;
         _isCollapsed = true;
         var anim = new DoubleAnimation(ActualHeight, MinHeight, TimeSpan.FromMilliseconds(180))
             { EasingFunction = new ElasticEase { EasingMode = EasingMode.EaseIn, Oscillations = 1, Springiness = 5 }, FillBehavior = FillBehavior.Stop };
@@ -1115,6 +1171,56 @@ public partial class StickerWindow : Window
     }
 
     private void OnDestroyClick(object sender, RoutedEventArgs e) => Destroy();
+
+    public void AddTask(string text)
+    {
+        var raw = text.Trim();
+        var taskText = raw.Length > 0 ? char.ToUpper(raw[0]) + raw[1..] : raw;
+        if (string.IsNullOrWhiteSpace(taskText)) return;
+
+        var item = new TaskItem { Text = taskText };
+        _data.Tasks.Add(item);
+        StickerStore.Save(_data);
+        UpdateDoneButton();
+        UpdateAllDoneState();
+
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            var container = (FrameworkElement)TaskList.ItemContainerGenerator.ContainerFromItem(item);
+            AnimateTaskIn(container);
+        });
+    }
+
+    private void ApplyRuleMode()
+    {
+        ContentPanel.Visibility      = Visibility.Collapsed;
+        PendingText.Visibility       = Visibility.Collapsed;
+        TimerText.Visibility         = Visibility.Collapsed;
+        LockIcon.Visibility          = Visibility.Collapsed;
+        RefreshBtn.Visibility        = Visibility.Collapsed;
+        ResetDotsPanel.Visibility    = Visibility.Collapsed;
+        DestroyBtn.Visibility        = Visibility.Collapsed;
+        ActiveToggle.Visibility      = Visibility.Collapsed;
+        RuleTextBlock.Visibility     = Visibility.Visible;
+        RuleTextBlock.Text           = _data.Title;
+        _timerDispatcher.Stop();
+    }
+
+    public void ConvertToRule()
+    {
+        if (_data.IsRule) return;
+
+        var firstTask = _data.Tasks.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.Text));
+        if (firstTask != null)
+            _data.Title = firstTask.Text;
+
+        _data.Tasks.Clear();
+        _data.IsRule = true;
+        StickerStore.Save(_data);
+
+        ApplyRuleMode();
+        FitHeight();
+    }
 
     public void HandleMouse5()
     {

@@ -58,5 +58,7 @@ public class StickerData
     public DateTime CreatedAt   { get; set; } = DateTime.UtcNow;
     public int      ResetCount  { get; set; } = 0;
     public string?  OutlineColor { get; set; }
+    public bool     IsRule       { get; set; }
+    public bool     IsActive     { get; set; } = true;
     public ObservableCollection<TaskItem> Tasks { get; set; } = [];
 }
