@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Start-Process \"z:\\\\Tools\\\\Notes\\\\StickerApp\\\\bin\\\\Debug\\\\net9.0-windows\\\\StickerApp.exe\")",
+      "Read(//z/Tools/**)"
+    ]
+  }
+}

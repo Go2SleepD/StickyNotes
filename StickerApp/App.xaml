@@ -1,0 +1,18 @@
+<Application x:Class="StickerApp.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <!-- Converter -->
+        <BooleanToVisibilityConverter x:Key="BoolToVisConverter"/>
+
+        <!-- Linear-style palette -->
+        <SolidColorBrush x:Key="BgBrush"      Color="#16161A"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#1E1E24"/>
+        <SolidColorBrush x:Key="BorderBrush"  Color="#2A2A35"/>
+        <SolidColorBrush x:Key="TextBrush"    Color="#E2E2E8"/>
+        <SolidColorBrush x:Key="SubtextBrush" Color="#6B7280"/>
+        <SolidColorBrush x:Key="AccentBrush"  Color="#5E6AD2"/>
+        <SolidColorBrush x:Key="DestroyBrush" Color="#EF4444"/>
+    </Application.Resources>
+</Application>

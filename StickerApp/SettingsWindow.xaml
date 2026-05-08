@@ -1,0 +1,345 @@
+<Window x:Class="StickerApp.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Настройки"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        Width="360" Height="470"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False">
+
+    <Border Background="{StaticResource SurfaceBrush}"
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="1" CornerRadius="10">
+        <Border.Effect>
+            <DropShadowEffect Color="#000000" Opacity="0.6" BlurRadius="24" ShadowDepth="6"/>
+        </Border.Effect>
+
+        <Grid Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>  <!-- 0: title -->
+                <RowDefinition Height="16"/>    <!-- 1: gap -->
+                <RowDefinition Height="Auto"/>  <!-- 2: color label -->
+                <RowDefinition Height="10"/>    <!-- 3: gap -->
+                <RowDefinition Height="Auto"/>  <!-- 4: swatches -->
+                <RowDefinition Height="20"/>    <!-- 5: gap -->
+                <RowDefinition Height="Auto"/>  <!-- 6: hotkeys label -->
+                <RowDefinition Height="10"/>    <!-- 7: gap -->
+                <RowDefinition Height="Auto"/>  <!-- 8: create sticker row -->
+                <RowDefinition Height="8"/>     <!-- 9: gap -->
+                <RowDefinition Height="Auto"/>  <!-- 10: complete task row -->
+                <RowDefinition Height="8"/>     <!-- 11: gap -->
+                <RowDefinition Height="Auto"/>  <!-- 12: clear desk row -->
+                <RowDefinition Height="20"/>    <!-- 13: gap -->
+                <RowDefinition Height="Auto"/>  <!-- 14: extras label -->
+                <RowDefinition Height="10"/>    <!-- 15: gap -->
+                <RowDefinition Height="Auto"/>  <!-- 16: rubber ball row -->
+                <RowDefinition Height="*"/>     <!-- 17: flex -->
+                <RowDefinition Height="Auto"/>  <!-- 18: done button -->
+            </Grid.RowDefinitions>
+
+            <!-- Title row -->
+            <Grid Grid.Row="0">
+                <TextBlock Text="Настройки"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="14" FontWeight="SemiBold"
+                           FontFamily="Segoe UI Variable, Segoe UI"/>
+                <Button Content="✕" Width="22" Height="22"
+                        HorizontalAlignment="Right"
+                        Foreground="{StaticResource SubtextBrush}"
+                        Background="Transparent" BorderThickness="0"
+                        FontSize="11" Cursor="Hand"
+                        Click="OnClose">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="Transparent" CornerRadius="4">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource DestroyBrush}"/>
+                                                <Setter Property="Foreground" Value="White"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+
+            <!-- Color label -->
+            <TextBlock Grid.Row="2"
+                       Text="Цвет новых стикеров"
+                       Foreground="{StaticResource SubtextBrush}"
+                       FontSize="11"
+                       FontFamily="Segoe UI Variable, Segoe UI"/>
+
+            <!-- Color swatches -->
+            <ItemsControl Grid.Row="4" x:Name="SwatchList">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Width="28" Height="28" Margin="0,0,8,0"
+                                Tag="{Binding Hex}"
+                                Click="OnSwatchClick"
+                                Cursor="Hand">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="Bd"
+                                                        Background="{Binding Brush}"
+                                                        CornerRadius="14"
+                                                        Width="24" Height="24">
+                                                    <TextBlock x:Name="Chk" Text="✓"
+                                                               Foreground="White" FontSize="11" FontWeight="Bold"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               Visibility="{Binding IsSelected,
+                                                                   Converter={StaticResource BoolToVisConverter}}"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Bd" Property="Width"  Value="26"/>
+                                                        <Setter TargetName="Bd" Property="Height" Value="26"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Hotkeys label -->
+            <TextBlock Grid.Row="6"
+                       Text="Хоткеи"
+                       Foreground="{StaticResource SubtextBrush}"
+                       FontSize="11"
+                       FontFamily="Segoe UI Variable, Segoe UI"/>
+
+            <!-- Row: Создать стикер -->
+            <Grid Grid.Row="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Создать стикер"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="12"
+                           FontFamily="Segoe UI Variable, Segoe UI"
+                           VerticalAlignment="Center"/>
+                <Button Grid.Column="2" x:Name="CreateHotkeyBtn"
+                        MinWidth="110" Height="26" Padding="10,0"
+                        Cursor="Hand" Click="OnChangeCreate">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="#1C1C2A"
+                                                BorderBrush="#2A2A38" BorderThickness="1"
+                                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                                            <TextBlock Text="{TemplateBinding Content}"
+                                                       Foreground="{StaticResource TextBrush}"
+                                                       FontSize="11"
+                                                       FontFamily="Segoe UI Variable, Segoe UI"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.78"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+
+            <!-- Row: Выполнить задачу -->
+            <Grid Grid.Row="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Выполнить задачу"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="12"
+                           FontFamily="Segoe UI Variable, Segoe UI"
+                           VerticalAlignment="Center"/>
+                <Button Grid.Column="2" x:Name="CompleteHotkeyBtn"
+                        MinWidth="110" Height="26" Padding="10,0"
+                        Cursor="Hand" Click="OnChangeComplete">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="#1C1C2A"
+                                                BorderBrush="#2A2A38" BorderThickness="1"
+                                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                                            <TextBlock Text="{TemplateBinding Content}"
+                                                       Foreground="{StaticResource TextBrush}"
+                                                       FontSize="11"
+                                                       FontFamily="Segoe UI Variable, Segoe UI"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.78"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+
+            <!-- Row: Очистить стол -->
+            <Grid Grid.Row="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Очистить стол"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="12"
+                           FontFamily="Segoe UI Variable, Segoe UI"
+                           VerticalAlignment="Center"/>
+                <Button Grid.Column="2" x:Name="ClearDeskHotkeyBtn"
+                        MinWidth="110" Height="26" Padding="10,0"
+                        Cursor="Hand" Click="OnChangeClearDesk">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="#1C1C2A"
+                                                BorderBrush="#2A2A38" BorderThickness="1"
+                                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                                            <TextBlock Text="{TemplateBinding Content}"
+                                                       Foreground="{StaticResource TextBrush}"
+                                                       FontSize="11"
+                                                       FontFamily="Segoe UI Variable, Segoe UI"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.78"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+
+            <!-- Extras label -->
+            <TextBlock Grid.Row="14"
+                       Text="Дополнительно"
+                       Foreground="{StaticResource SubtextBrush}"
+                       FontSize="11"
+                       FontFamily="Segoe UI Variable, Segoe UI"/>
+
+            <!-- Row: Резиновый мячик -->
+            <Grid Grid.Row="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Резиновый мячик"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="12"
+                           FontFamily="Segoe UI Variable, Segoe UI"
+                           VerticalAlignment="Center"/>
+                <Button Grid.Column="2" x:Name="RubberBallBtn"
+                        MinWidth="110" Height="26" Padding="10,0"
+                        Cursor="Hand" Click="OnToggleRubberBall">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="#1C1C2A"
+                                                BorderBrush="#2A2A38" BorderThickness="1"
+                                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                                            <TextBlock Text="{TemplateBinding Content}"
+                                                       Foreground="{StaticResource TextBrush}"
+                                                       FontSize="11"
+                                                       FontFamily="Segoe UI Variable, Segoe UI"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.78"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+
+            <!-- Done -->
+            <Button Grid.Row="18" Content="Готово"
+                    HorizontalAlignment="Right"
+                    Padding="20,6" Cursor="Hand"
+                    Click="OnClose">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Bd"
+                                            Background="{StaticResource AccentBrush}"
+                                            CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                        <TextBlock Text="{TemplateBinding Content}"
+                                                   Foreground="White" FontSize="12"
+                                                   FontFamily="Segoe UI Variable, Segoe UI"
+                                                   HorizontalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </Grid>
+    </Border>
+</Window>
