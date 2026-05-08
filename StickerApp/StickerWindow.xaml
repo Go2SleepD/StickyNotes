@@ -76,10 +76,17 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <!-- Task card — same surface as the sticker itself -->
-                                    <Border Margin="0,2" CornerRadius="5"
+                                    <Border x:Name="TaskCard" Margin="0,2" CornerRadius="5"
                                             Background="{StaticResource SurfaceBrush}"
                                             BorderBrush="{StaticResource BorderBrush}"
-                                            BorderThickness="1">
+                                            BorderThickness="1"
+                                            RenderTransformOrigin="0.5,0.5">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform x:Name="TaskCardScale" ScaleX="1" ScaleY="1"/>
+                                        </Border.RenderTransform>
+                                        <Border.Effect>
+                                            <DropShadowEffect x:Name="TaskCardShadow" Color="#000000" Opacity="0.10" BlurRadius="4" ShadowDepth="1" Direction="270"/>
+                                        </Border.Effect>
                                     <Grid x:Name="TaskRow" MinHeight="26" Margin="6,2,2,2">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="22"/>
@@ -247,6 +254,28 @@
                                             <Setter TargetName="StrikeLine"  Property="Visibility" Value="Collapsed"/>
                                             <Setter TargetName="EditDisplay" Property="Visibility" Value="Visible"/>
                                         </DataTrigger>
+                                        <EventTrigger RoutedEvent="MouseEnter">
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardScale" Storyboard.TargetProperty="ScaleX" To="1.015" Duration="0:0:0.12"/>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardScale" Storyboard.TargetProperty="ScaleY" To="1.015" Duration="0:0:0.12"/>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardShadow" Storyboard.TargetProperty="Opacity" To="0.28" Duration="0:0:0.12"/>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardShadow" Storyboard.TargetProperty="BlurRadius" To="10" Duration="0:0:0.12"/>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardShadow" Storyboard.TargetProperty="ShadowDepth" To="5" Duration="0:0:0.12"/>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                        <EventTrigger RoutedEvent="MouseLeave">
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.18"/>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.18"/>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardShadow" Storyboard.TargetProperty="Opacity" To="0.10" Duration="0:0:0.18"/>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardShadow" Storyboard.TargetProperty="BlurRadius" To="4" Duration="0:0:0.18"/>
+                                                    <DoubleAnimation Storyboard.TargetName="TaskCardShadow" Storyboard.TargetProperty="ShadowDepth" To="1" Duration="0:0:0.18"/>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
                                     </DataTemplate.Triggers>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -259,6 +288,17 @@
                                    FontSize="12.5"
                                    FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
                                    Foreground="{StaticResource TextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <!-- Empty state placeholder -->
+                        <TextBlock x:Name="EmptyPlaceholder"
+                                   Text="Начни печатать..."
+                                   Visibility="Collapsed"
+                                   Margin="35,6,20,2"
+                                   FontSize="12.5"
+                                   FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                                   Foreground="{StaticResource SubtextBrush}"
+                                   Opacity="0.28"
                                    TextWrapping="Wrap"/>
 
                                 </StackPanel>
@@ -385,7 +425,11 @@
                         CornerRadius="9"
                         Background="Transparent"
                         BorderThickness="2"
-                        IsHitTestVisible="False"/>
+                        IsHitTestVisible="False">
+                    <Border.Effect>
+                        <DropShadowEffect x:Name="OutlineGlow" Color="Transparent" Opacity="0" BlurRadius="14" ShadowDepth="0" Direction="0"/>
+                    </Border.Effect>
+                </Border>
 
             </Grid>
         </Border>

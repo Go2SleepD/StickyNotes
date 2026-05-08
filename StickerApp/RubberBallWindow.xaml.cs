@@ -49,6 +49,13 @@ public partial class RubberBallWindow : Window
     private Ellipse            _shadow     = null!;
     private TranslateTransform _shadowTrans= null!;
 
+    // Trail
+    private Polyline           _trail       = null!;
+    private PointCollection    _trailPoints = null!;
+    private LinearGradientBrush _trailBrush = null!;
+    private readonly List<WpfPoint> _trailWorld = [];
+    private const int MaxTrailPoints = 16;
+
     // Per-tick bounce consolidation
     private double _tickFloorImpact;
     private double _tickWallImpact;
@@ -260,7 +267,31 @@ public partial class RubberBallWindow : Window
         };
 
         Root.Children.Add(_shadow);
+        BuildTrail();
         Root.Children.Add(_ball);
+    }
+
+    private void BuildTrail()
+    {
+        _trailBrush = new LinearGradientBrush(new GradientStopCollection
+        {
+            new(WpfColor.FromArgb(0, 0xFF, 0xC2, 0x66), 0.0),
+            new(WpfColor.FromArgb(130, 0xFF, 0xC2, 0x66), 1.0),
+        }) { MappingMode = BrushMappingMode.Absolute };
+
+        _trail = new Polyline
+        {
+            Stroke             = _trailBrush,
+            StrokeThickness    = 2.8,
+            StrokeLineJoin     = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap   = PenLineCap.Round,
+            IsHitTestVisible   = false,
+            Opacity            = 0.0,
+        };
+        _trailPoints = new PointCollection();
+        _trail.Points = _trailPoints;
+        Root.Children.Add(_trail);
     }
 
     private void BuildParticles()
@@ -584,6 +615,30 @@ public partial class RubberBallWindow : Window
     private void UpdateTransforms()
     {
         _rotate.Angle = _angle;
+
+        // Update motion trail (world-space points rendered local to current window)
+        double speed = Math.Sqrt(_vx * _vx + _vy * _vy);
+        _trail.Opacity = Math.Min(0.5, speed / 700.0);
+        if (speed > 25)
+        {
+            _trailWorld.Add(new WpfPoint(_x, _y));
+            if (_trailWorld.Count > MaxTrailPoints) _trailWorld.RemoveAt(0);
+        }
+        else if (_trailWorld.Count > 0 && speed < 5)
+        {
+            _trailWorld.Clear();
+        }
+        _trailPoints.Clear();
+        double wx = _x - LocalCenter;
+        double wy = _y - LocalCenter;
+        foreach (var pt in _trailWorld)
+            _trailPoints.Add(new WpfPoint(pt.X - wx, pt.Y - wy));
+        if (_trailPoints.Count >= 2)
+        {
+            _trailBrush.StartPoint = _trailPoints[0];
+            _trailBrush.EndPoint   = _trailPoints[_trailPoints.Count - 1];
+        }
+
         // Move the WINDOW to follow the ball. SetWindowPos for a layered window with
         // NOSIZE | NOZORDER | NOACTIVATE is just an OS reposition — no repaint, no
         // UpdateLayeredWindow. WPF's Window.Left/Top setters would be heavier.

@@ -107,7 +107,7 @@ public partial class StickerWindow : Window
         UpdateDoneMarkBrush();
         TaskList.ItemsSource = _data.Tasks;
         _data.Tasks.CollectionChanged += (_, _) =>
-            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FitHeight);
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { FitHeight(); UpdatePendingText(); });
 
         StickerBorder.RenderTransformOrigin = new System.Windows.Point(0.5, 0.06);
         StickerBorder.RenderTransform = new TransformGroup
@@ -148,6 +148,7 @@ public partial class StickerWindow : Window
             UpdateTimer();
             _timerDispatcher.Start();
             UpdateAllDoneState();
+            UpdatePendingText();
             UpdateResetDots();
             ContentPanel.SizeChanged += (_, _) => FitHeight();
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render, FitHeight);
@@ -451,6 +452,14 @@ public partial class StickerWindow : Window
         var anim = new ColorAnimation(target, TimeSpan.FromMilliseconds(150))
             { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } };
         _outlineBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+
+        // Glow follows outline color
+        var glowColorAnim = new ColorAnimation(target, TimeSpan.FromMilliseconds(150))
+            { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } };
+        var glowOpacityAnim = new DoubleAnimation(_outlineIndex >= 0 ? 0.45 : 0.0, TimeSpan.FromMilliseconds(150))
+            { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } };
+        OutlineGlow.BeginAnimation(DropShadowEffect.ColorProperty, glowColorAnim);
+        OutlineGlow.BeginAnimation(DropShadowEffect.OpacityProperty, glowOpacityAnim);
 
         _data.OutlineColor = _outlineIndex >= 0 ? _outlineColorNames[_outlineIndex] : null;
         StickerStore.Save(_data);
@@ -862,6 +871,8 @@ public partial class StickerWindow : Window
     private void UpdatePendingText()
     {
         bool hasText = _inputBuffer.Length > 0;
+        bool showPlaceholder = _data.Tasks.Count == 0 && !hasText && _editingTask == null;
+        EmptyPlaceholder.Visibility = showPlaceholder ? Visibility.Visible : Visibility.Collapsed;
 
         if (_editingTask is { } editing)
         {
@@ -1009,18 +1020,24 @@ public partial class StickerWindow : Window
     {
         if (_isCollapsed || _isDestroying || _spawning) return;
         _isCollapsed = true;
-        var anim = new DoubleAnimation(ActualHeight, MinHeight, TimeSpan.FromMilliseconds(107))
-            { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }, FillBehavior = FillBehavior.Stop };
+        var anim = new DoubleAnimation(ActualHeight, MinHeight, TimeSpan.FromMilliseconds(180))
+            { EasingFunction = new ElasticEase { EasingMode = EasingMode.EaseIn, Oscillations = 1, Springiness = 5 }, FillBehavior = FillBehavior.Stop };
         anim.Completed += (_, _) => Height = MinHeight;
         BeginAnimation(HeightProperty, anim);
+
+        // Slight squeeze on collapse
+        var squeeze = new DoubleAnimation(1.0, 0.96, TimeSpan.FromMilliseconds(180))
+            { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }, FillBehavior = FillBehavior.Stop };
+        squeeze.Completed += (_, _) => _scaleT.ScaleY = 1.0;
+        _scaleT.BeginAnimation(ScaleTransform.ScaleYProperty, squeeze);
     }
 
     private void ExpandSticker()
     {
         if (!_isCollapsed) return;
         _isCollapsed = false; // set now so CollapseSticker can re-trigger if cursor leaves mid-expand
-        var anim = new DoubleAnimation(ActualHeight, _fullHeight, TimeSpan.FromMilliseconds(83))
-            { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.Stop };
+        var anim = new DoubleAnimation(ActualHeight, _fullHeight, TimeSpan.FromMilliseconds(220))
+            { EasingFunction = new ElasticEase { EasingMode = EasingMode.EaseOut, Oscillations = 1, Springiness = 4 }, FillBehavior = FillBehavior.Stop };
         anim.Completed += (_, _) =>
         {
             Height = _fullHeight;
@@ -1028,6 +1045,12 @@ public partial class StickerWindow : Window
                 CollapseSticker();
         };
         BeginAnimation(HeightProperty, anim);
+
+        // Overshoot "unfold" bounce
+        var overshoot = new DoubleAnimation(1.04, 1.0, TimeSpan.FromMilliseconds(280))
+            { EasingFunction = new ElasticEase { EasingMode = EasingMode.EaseOut, Oscillations = 1, Springiness = 6 }, FillBehavior = FillBehavior.Stop };
+        overshoot.Completed += (_, _) => { _scaleT.ScaleY = 1.0; StartIdle(); };
+        _scaleT.BeginAnimation(ScaleTransform.ScaleYProperty, overshoot);
     }
 
     private double DoneButtonX() => Left + Width  / 2 - 65;
