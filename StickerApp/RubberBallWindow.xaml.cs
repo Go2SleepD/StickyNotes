@@ -22,7 +22,7 @@ public partial class RubberBallWindow : Window
     private const double WallRestitution = 0.82;
     private const double FloorRestitution= 0.78;
     private const double FloorFriction   = 0.78;
-    private const double AirDrag         = 0.06;
+    private const double AirDrag         = 0.025;
     private const double GrabRadius      = BallR + 10;
     private const double SleepSpeed      = 14;
     private const double SleepFloorEps   = 1.5;
@@ -55,6 +55,8 @@ public partial class RubberBallWindow : Window
     private LinearGradientBrush _trailBrush = null!;
     private readonly List<WpfPoint> _trailWorld = [];
     private const int MaxTrailPoints = 16;
+
+    // Trajectory preview rendered in BallOverlayWindow
 
     // Per-tick bounce consolidation
     private double _tickFloorImpact;
@@ -138,9 +140,18 @@ public partial class RubberBallWindow : Window
 
     public static void Despawn()
     {
+        BallOverlayWindow.HideTrajectory();
         _instance?.Close();
         _instance = null;
     }
+
+    public static double DogRestX =>
+        _instance?._dog?.RestX ?? (SystemParameters.WorkArea.Left + SystemParameters.WorkArea.Width / 2);
+
+    public static double DogFloorY =>
+        _instance?._dog?.FloorY ?? SystemParameters.WorkArea.Bottom;
+
+    public static void NotifyDogOfMeat(double meatX) => _instance?._dog?.NotifyMeat(meatX);
 
     public static bool IsAlive => _instance is { IsVisible: true };
 
@@ -268,7 +279,13 @@ public partial class RubberBallWindow : Window
 
         Root.Children.Add(_shadow);
         BuildTrail();
+        BuildTrajectory();
         Root.Children.Add(_ball);
+    }
+
+    private void BuildTrajectory()
+    {
+        // Trajectory is rendered in BallOverlayWindow (full screen, no clipping)
     }
 
     private void BuildTrail()
@@ -505,6 +522,7 @@ public partial class RubberBallWindow : Window
 
         UpdateTransforms();
         UpdateParticles(dt);
+        UpdateTrajectory();
         CheckProximity();
 
         if (!_grabbing
@@ -607,6 +625,7 @@ public partial class RubberBallWindow : Window
 
         double impact = Math.Abs(vDotN);
         _target.Explode();
+        BallOverlayWindow.SpawnMeat();
         if (impact >= WallSnapSpeed)
             TriggerBounceFx(impact, vertical: Math.Abs(nx) > Math.Abs(ny));
         return true;
@@ -649,6 +668,53 @@ public partial class RubberBallWindow : Window
             Win32.SetWindowPos(_hwnd, IntPtr.Zero, x, y, 0, 0,
                 Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_NOZORDER);
         }
+    }
+
+    // ── Trajectory preview ───────────────────────────────────────────────
+    private void UpdateTrajectory()
+    {
+        double vx = _grabbing ? _grabVx : _vx;
+        double vy = _grabbing ? _grabVy : _vy;
+        double speed = Math.Sqrt(vx * vx + vy * vy);
+
+        // Show trajectory whenever ball is moving
+        if (speed < 15 || _sleeping)
+        {
+            BallOverlayWindow.HideTrajectory();
+            return;
+        }
+
+        var points = new List<WpfPoint>();
+        double simX = _x;
+        double simY = _y;
+        double simVx = vx;
+        double simVy = vy;
+        const double simDt = 0.012;
+
+        for (int i = 0; i < 24; i++)
+        {
+            simVy += Gravity * simDt;
+            simVx *= 1.0 - AirDrag * simDt;
+            simVy *= 1.0 - AirDrag * simDt;
+            simX += simVx * simDt;
+            simY += simVy * simDt;
+
+            if (simY + BallR >= _floorY)
+            {
+                simY = _floorY - BallR;
+                if (Math.Abs(simVy) < FloorSnapSpeed) simVy = 0;
+                else simVy = -simVy * FloorRestitution;
+                simVx *= FloorFriction;
+            }
+            if (simX + BallR > _rightWall) { simX = _rightWall - BallR; simVx = -Math.Abs(simVx) * WallRestitution; }
+            if (simX - BallR < _leftWall)  { simX = _leftWall + BallR;  simVx = Math.Abs(simVx) * WallRestitution; }
+
+            points.Add(new WpfPoint(simX, simY));
+
+            if (Math.Abs(simVx) + Math.Abs(simVy) < SleepSpeed) break;
+        }
+
+        BallOverlayWindow.ShowTrajectory(points.ToArray(), Math.Min(0.55, speed / 300.0));
     }
 
     // ── Bounce reactions ─────────────────────────────────────────────────
@@ -815,8 +881,8 @@ public partial class RubberBallWindow : Window
     {
         // Spring-damper "rubber band" between cursor and ball. Ball lags the cursor;
         // fast flicks build real velocity that's transferred on release for a true throw.
-        const double Stiffness = 260;   // pull-toward-cursor strength
-        const double Damping   = 22;    // velocity damping (slightly under critical → tiny springy feel)
+        const double Stiffness = 140;   // pull-toward-cursor strength
+        const double Damping   = 14;    // velocity damping (slightly under critical → tiny springy feel)
 
         var (cx, cy) = CursorScreenDip();
         double targetX = cx - _grabOffset.X;

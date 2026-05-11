@@ -1145,6 +1145,7 @@ public partial class StickerWindow : Window
         var accent   = ((SolidColorBrush)Resources["AccentBrush"]).Color;
 
         BallOverlayWindow.Burst(dipPt, accent);
+        BallOverlayWindow.SpawnMeat();
         PlayCrumple(() => { BallOverlayWindow.DropBall(dipPt, accent, _data); Close(); });
     }
 

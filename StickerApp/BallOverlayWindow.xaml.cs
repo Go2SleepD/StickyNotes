@@ -28,6 +28,7 @@ public partial class BallOverlayWindow : Window
     private const int    WsExTransparent = 0x00000020;
 
     private readonly List<BallState> _balls = [];
+    private readonly List<MeatState> _meats = [];
     private DateTime _lastTick = DateTime.UtcNow;
 
     private double _leftWall, _rightWall;
@@ -65,6 +66,10 @@ public partial class BallOverlayWindow : Window
     private static bool _totalLoaded;
     private static readonly List<StickerData> _archivedData = [];
 
+    // Trajectory overlay
+    private static Polyline?        _trajectory;
+    private static bool             _trajectoryVisible;
+
     // ── Public API ────────────────────────────────────────────────────────
     public static void DropBall(WpfPoint screenDip, WpfColor accent, StickerData data)
     {
@@ -81,6 +86,122 @@ public partial class BallOverlayWindow : Window
     {
         _instance = _instance is { IsVisible: true } ? _instance : Create();
         _instance.AddConfetti(screenDip, accent);
+    }
+
+    public static void ShowTrajectory(WpfPoint[] worldPoints, double opacity)
+    {
+        // Never create the overlay window from a CompositionTarget.Rendering callback
+        // (that can cause re-entrancy / dead-lock). If it isn't alive yet, skip.
+        if (_instance is not { IsVisible: true }) return;
+
+        if (_trajectory == null || _trajectory.Parent == null)
+        {
+            _trajectory = new Polyline
+            {
+                Stroke = new SolidColorBrush(WpfColor.FromArgb(110, 0xFF, 0xC2, 0x66)),
+                StrokeThickness = 3.5,
+                StrokeDashArray = new DoubleCollection { 3, 3 },
+                StrokeLineJoin = PenLineJoin.Round,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                IsHitTestVisible = false,
+                Opacity = 0,
+            };
+            _instance.Root.Children.Insert(0, _trajectory);
+        }
+
+        double vl = SystemParameters.VirtualScreenLeft;
+        double vt = SystemParameters.VirtualScreenTop;
+        var pts = new PointCollection(worldPoints.Length);
+        foreach (var p in worldPoints)
+            pts.Add(new WpfPoint(p.X - vl, p.Y - vt));
+        _trajectory.Points = pts;
+        _trajectory.Opacity = opacity;
+        _trajectoryVisible = opacity > 0;
+    }
+
+    public static void HideTrajectory()
+    {
+        _trajectoryVisible = false;
+        if (_trajectory != null)
+            _trajectory.Opacity = 0;
+    }
+
+    public static void SpawnMeat()
+    {
+        _instance = _instance is { IsVisible: true } ? _instance : Create();
+        _instance.AddMeat();
+    }
+
+    public static bool TryConsumeMeatAt(double worldX)
+    {
+        if (_instance == null) return false;
+        MeatState? best = null;
+        double bestDist = double.MaxValue;
+        foreach (var m in _instance._meats)
+        {
+            if (!m.Landed) continue;
+            double dist = Math.Abs((m.X + _instance.Left) - worldX);
+            if (dist < bestDist && dist < 50)
+            {
+                bestDist = dist;
+                best = m;
+            }
+        }
+        if (best == null) return false;
+        _instance.Root.Children.Remove(best.Visual);
+        _instance._meats.Remove(best);
+        return true;
+    }
+
+    private void AddMeat()
+    {
+        double mx = RubberBallWindow.DogRestX - Left;
+        double my = -50;
+
+        var gradient = new LinearGradientBrush(
+            new GradientStopCollection
+            {
+                new(WpfColor.FromRgb(0xC8, 0x40, 0x30), 0.0),
+                new(WpfColor.FromRgb(0x90, 0x20, 0x18), 1.0),
+            })
+        { StartPoint = new WpfPoint(0, 0), EndPoint = new WpfPoint(0, 1) };
+
+        var meat = new Ellipse
+        {
+            Width = 22, Height = 14,
+            Fill = gradient,
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect { BlurRadius = 3, ShadowDepth = 1, Opacity = 0.3 }
+        };
+        Canvas.SetLeft(meat, mx - 11);
+        Canvas.SetTop(meat, my - 7);
+        Root.Children.Add(meat);
+
+        _meats.Add(new MeatState { Visual = meat, X = mx, Y = my, Vx = 0, Vy = 0, Landed = false });
+
+        // Notify dog right away so it starts running while meat is still falling
+        RubberBallWindow.NotifyDogOfMeat(RubberBallWindow.DogRestX);
+    }
+
+    private void TickMeats(double dt)
+    {
+        double floor = RubberBallWindow.DogFloorY - Top;
+        foreach (var m in _meats)
+        {
+            if (m.Landed) continue;
+            m.Vy += Gravity * dt;
+            m.Y += m.Vy * dt;
+            if (m.Y >= floor - 7)
+            {
+                m.Y = floor - 7;
+                m.Vy = 0;
+                m.Vx = 0;
+                m.Landed = true;
+            }
+            Canvas.SetLeft(m.Visual, m.X - 11);
+            Canvas.SetTop(m.Visual, m.Y - 7);
+        }
     }
 
     private static BallOverlayWindow Create()
@@ -355,6 +476,7 @@ public partial class BallOverlayWindow : Window
         _lastTick = now;
 
         TickBalls(dt);
+        TickMeats(dt);
     }
 
     private void TickBalls(double dt)
@@ -640,9 +762,12 @@ public partial class BallOverlayWindow : Window
         {
             Root.Children.Remove(visual);
             Root.Children.Remove(label);
-            CompositionTarget.Rendering -= OnTick;
-            _instance = null;
-            Close();
+            if (!_trajectoryVisible)
+            {
+                CompositionTarget.Rendering -= OnTick;
+                _instance = null;
+                Close();
+            }
         };
         visual.BeginAnimation(OpacityProperty, fade);
         label.BeginAnimation(OpacityProperty,
@@ -1353,5 +1478,12 @@ public partial class BallOverlayWindow : Window
         public double Omega, Angle;
         public bool   Absorbed;
         public bool   Frozen;
+    }
+
+    private class MeatState
+    {
+        public required Ellipse Visual;
+        public double X, Y, Vx, Vy;
+        public bool Landed;
     }
 }
