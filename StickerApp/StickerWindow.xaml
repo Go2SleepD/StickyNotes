@@ -8,10 +8,13 @@
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         Width="260" Height="260"
-        MinWidth="180" MinHeight="150">
+        MinWidth="180" MinHeight="120">
 
     <!-- Outer grid: alpha=1 invisible border lets WM_NCHITTEST fire for resize; enabled after spawn -->
-    <Grid x:Name="OuterGrid" Background="Transparent">
+    <Grid x:Name="OuterGrid" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+        <Grid.RenderTransform>
+            <ScaleTransform x:Name="OuterScale" ScaleX="1" ScaleY="1"/>
+        </Grid.RenderTransform>
 
         <!-- Ambient (far/diffuse) shadow layer — sits behind StickerBorder -->
         <Border x:Name="AmbientShadow"
@@ -309,41 +312,86 @@
                 </StackPanel>
 
                 <!-- ── Active toggle ─────────────────────────────────────── -->
-                <Button x:Name="ActiveToggle"
-                        HorizontalAlignment="Left"
-                        VerticalAlignment="Bottom"
-                        Margin="10,2,0,6"
-                        Content="&#x25CF;"
-                        FontSize="10"
-                        Cursor="Hand"
-                        Click="OnActiveToggleClick">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Background" Value="Transparent"/>
-                            <Setter Property="BorderThickness" Value="0"/>
-                            <Setter Property="Foreground" Value="#4ADE80"/>
-                            <Setter Property="Opacity" Value="0.9"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Opacity" Value="1"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
+                <Grid x:Name="ToggleGrid"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Bottom"
+                      Margin="10,2,0,6">
+                    <Ellipse x:Name="ProgressRing"
+                             Width="18" Height="18"
+                             Stroke="#4ADE80"
+                             StrokeThickness="2"
+                             Fill="Transparent"
+                             Visibility="Collapsed"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"
+                             RenderTransformOrigin="0.5,0.5">
+                        <Ellipse.RenderTransform>
+                            <RotateTransform Angle="-90"/>
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                    <Button x:Name="ActiveToggle"
+                            Width="14"
+                            Height="14"
+                            Cursor="Hand"
+                            Click="OnActiveToggleClick">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Foreground" Value="#4ADE80"/>
+                                <Setter Property="Opacity" Value="0.9"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Ellipse Width="14" Height="14"
+                                                     Fill="{TemplateBinding Foreground}"
+                                                     HorizontalAlignment="Center"
+                                                     VerticalAlignment="Center"/>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Opacity" Value="1"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </Grid>
 
                 <!-- ── Timer ─────────────────────────────────────────────── -->
                 <StackPanel Orientation="Horizontal"
                             VerticalAlignment="Bottom"
                             HorizontalAlignment="Right"
                             Margin="10,2,10,6">
+                    <Border x:Name="EstimateBadge"
+                            Background="#252533"
+                            CornerRadius="4"
+                            Padding="4,1"
+                            Margin="0,0,6,0"
+                            Cursor="Hand"
+                            PreviewMouseLeftButtonDown="OnEstimatePreviewMouseDown"
+                            ToolTip="Двойной клик — изменить ожидаемое время">
+                        <TextBlock x:Name="EstimateText"
+                                   FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                                   FontSize="11"
+                                   Foreground="{StaticResource SubtextBrush}"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                    <Border x:Name="EstimateEditBadge"
+                            Visibility="Collapsed"
+                            Background="#1E1E24"
+                            CornerRadius="4"
+                            Padding="4,1"
+                            Margin="0,0,6,0"
+                            PreviewMouseLeftButtonDown="OnEstimatePreviewMouseDown">
+                        <TextBlock x:Name="EstimateEditText"
+                                   FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextBrush}"
+                                   VerticalAlignment="Center"/>
+                    </Border>
                     <TextBlock x:Name="LockIcon"
                                Visibility="Collapsed"
                                Text="&#xE72E;"
@@ -410,6 +458,39 @@
                             Margin="0,34,3,0"
                             Width="6"
                             IsHitTestVisible="False"/>
+
+                <!-- ── Minimize button ───────────────────────────────────── -->
+                <Button x:Name="MinimizeBtn" Width="22" Height="22"
+                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,6,28,0"
+                        Content="—" FontSize="11"
+                        Cursor="Hand" Click="OnMinimizeClick"
+                        ToolTip="Свернуть стикер">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Opacity" Value="0.35"/>
+                            <Setter Property="Foreground" Value="{StaticResource SubtextBrush}"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="Transparent" CornerRadius="4">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Opacity" Value="1"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
 
                 <!-- ── Close button ──────────────────────────────────────── -->
                 <Button x:Name="DestroyBtn" Width="22" Height="22"

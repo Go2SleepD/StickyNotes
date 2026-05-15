@@ -1,0 +1,45 @@
+<Window x:Class="StickerApp.BrickWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Width="65"
+        Height="20">
+
+    <Border x:Name="BrickBorder"
+            CornerRadius="3"
+            BorderThickness="2"
+            Background="#13131A"
+            BorderBrush="#2A2A3C">
+        <Button x:Name="ExpandBtn"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Content="▲"
+                FontSize="8"
+                Foreground="#888899"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="0"
+                Cursor="Hand"
+                Click="OnExpandClick">
+            <Button.Style>
+                <Style TargetType="Button">
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent">
+                                    <ContentPresenter HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Button.Style>
+        </Button>
+    </Border>
+</Window>

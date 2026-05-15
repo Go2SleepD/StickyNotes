@@ -28,6 +28,7 @@ public partial class StickerWindow : Window
     private int       _selAnchor = -1; // -1 = no selection; selection spans [min, max) of cursor/anchor
     private TaskItem? _editingTask;
     private string    _editingOriginalText = "";
+    private bool      _editingEstimate;
 
     private bool HasSelection => _selAnchor >= 0 && _selAnchor != _cursorPos;
 
@@ -81,10 +82,14 @@ public partial class StickerWindow : Window
     private bool _borderHighlighted;
     private int  _lastHitTest = Win32.HTCLIENT;
     private bool _isTyping;
+    private bool _isMinimizingOrRestoring;
 
     // ── Layout constants ──────────────────────────────────────────────────
     private const int BorderSize = 20;
     private const int CornerSize = 14;
+
+    public const double BRICK_WIDTH = 65;
+    public const double BRICK_HEIGHT = 20;
 
     // ── Input keyboard layout (override; shared across all stickers) ─────
     private static IntPtr _inputLayout;        // IntPtr.Zero = follow foreground window
@@ -99,8 +104,6 @@ public partial class StickerWindow : Window
 
         Left   = data.X;
         Top    = data.Y;
-        Width  = data.Width;
-        Height = data.Height;
 
         ApplyAccentColor();
         if (_data.IsRule) ApplyRuleMode();
@@ -158,10 +161,12 @@ public partial class StickerWindow : Window
             }
             UpdateAllDoneState();
             UpdatePendingText();
+            UpdateEstimateDisplay();
+            UpdateProgressRing();
             UpdateResetDots();
             UpdateToggleVisual();
-            ContentPanel.SizeChanged += (_, _) => FitHeight();
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render, FitHeight);
+            // Defer height calc until after containers are generated and measured
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, FitHeight);
         };
     }
 
@@ -552,10 +557,11 @@ public partial class StickerWindow : Window
 
     private void UpdateToggleVisual()
     {
-        ActiveToggle.Content = _data.IsActive ? "\u25CF" : "\u25CB";
+        ActiveToggle.Content = "\u25CF";
         ActiveToggle.Foreground = _data.IsActive
             ? new SolidColorBrush(Color.FromRgb(0x4A, 0xDE, 0x80))
             : new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));
+        ActiveToggle.Opacity = _data.IsActive ? 0.9 : 0.4;
     }
 
     private void UpdateResetDots()
@@ -666,8 +672,17 @@ public partial class StickerWindow : Window
         bool ctrl  = Win32.IsKeyDown(Win32.VK_CTRL);
         bool shift = Win32.IsKeyDown(Win32.VK_SHIFT);
 
-        if (vk == Win32.VK_RETURN) { CommitInput();  return; }
-        if (vk == Win32.VK_ESCAPE) { ClearInput();   return; }
+        if (_editingEstimate)
+        {
+            if (vk == Win32.VK_RETURN) { CommitEstimate(); return; }
+            if (vk == Win32.VK_ESCAPE) { CancelEstimate(); return; }
+            // fall through to normal text input handling
+        }
+        else
+        {
+            if (vk == Win32.VK_RETURN) { CommitInput();  return; }
+            if (vk == Win32.VK_ESCAPE) { ClearInput();   return; }
+        }
         if (vk == Win32.VK_UP || vk == Win32.VK_DOWN) return;
 
         if (vk == Win32.VK_LEFT)   { MoveByChar(-1, shift, ctrl); return; }
@@ -870,6 +885,8 @@ public partial class StickerWindow : Window
 
     private void CommitInput()
     {
+        if (_editingEstimate) { CommitEstimate(); return; }
+
         var raw  = _inputBuffer.ToString().Trim();
         var text = raw.Length > 0 ? char.ToUpper(raw[0]) + raw[1..] : raw;
 
@@ -890,6 +907,7 @@ public partial class StickerWindow : Window
             StickerStore.Save(_data);
             UpdateDoneButton();
             UpdateAllDoneState();
+            UpdateProgressRing();
 
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
             {
@@ -902,6 +920,7 @@ public partial class StickerWindow : Window
 
     private void ClearInput()
     {
+        if (_editingEstimate) { CancelEstimate(); return; }
         if (_editingTask is { } editing)
         {
             editing.IsEditing = false;
@@ -920,6 +939,22 @@ public partial class StickerWindow : Window
 
     private void UpdatePendingText()
     {
+        if (_editingEstimate)
+        {
+            EstimateBadge.Visibility = Visibility.Collapsed;
+            EstimateEditBadge.Visibility = Visibility.Visible;
+            var text = _inputBuffer.ToString();
+            EstimateEditText.Text = text[.._cursorPos] + "│" + text[_cursorPos..];
+            FitHeight();
+            return;
+        }
+        else
+        {
+            EstimateBadge.Visibility = Visibility.Visible;
+            EstimateEditBadge.Visibility = Visibility.Collapsed;
+            UpdateEstimateDisplay();
+        }
+
         bool hasText = _inputBuffer.Length > 0;
         bool showPlaceholder = _data.Tasks.Count == 0 && !hasText && _editingTask == null;
         EmptyPlaceholder.Visibility = showPlaceholder ? Visibility.Visible : Visibility.Collapsed;
@@ -1018,6 +1053,7 @@ public partial class StickerWindow : Window
             StickerStore.Save(_data);
             UpdateDoneButton();
             UpdateAllDoneState();
+            UpdateProgressRing();
             FitHeight();
         };
         container.BeginAnimation(OpacityProperty, fade);
@@ -1029,6 +1065,7 @@ public partial class StickerWindow : Window
         StickerStore.Save(_data);
         UpdateDoneButton();
         UpdateAllDoneState();
+        UpdateProgressRing();
     }
 
     private void FitHeight()
@@ -1036,15 +1073,19 @@ public partial class StickerWindow : Window
         if (_isCollapsed) return;
         if (_data.IsRule)
         {
-            Height = Math.Max(MinHeight, 150);
+            Height = Math.Max(MinHeight, 120);
             _fullHeight = Height;
             return;
         }
         // StickerBorder.Margin=20 (×2=40) + ContentPanel.Margin top=4 bottom=24 = 68 ≈ 70
         const double Overhead = 70;
         double preferred = ContentPanel.ActualHeight + Overhead;
-        Height = Math.Max(MinHeight, preferred);
-        _fullHeight = Height;
+        double newHeight = Math.Max(MinHeight, preferred);
+        if (Math.Abs(Height - newHeight) > 0.5)
+        {
+            Height = newHeight;
+            _fullHeight = newHeight;
+        }
     }
 
     private void RefreshList() => UpdateDoneButton();
@@ -1109,6 +1150,114 @@ public partial class StickerWindow : Window
         _scaleT.BeginAnimation(ScaleTransform.ScaleYProperty, overshoot);
     }
 
+    private void OnMinimizeClick(object sender, RoutedEventArgs e)
+    {
+        ((App)WpfApp.Current).MinimizeSticker(this);
+    }
+
+    internal void AnimateToBrick(System.Windows.Point brickPos, Action onComplete)
+    {
+        if (_isDestroying || _spawning) return;
+        _isMinimizingOrRestoring = true;
+        StopIdle();
+        _doneWin?.CloseSmooth();
+        _doneWin = null;
+        OuterGrid.IsHitTestVisible = false;
+
+        double targetScaleX = BRICK_WIDTH / ActualWidth;
+        double targetScaleY = BRICK_HEIGHT / ActualHeight;
+        double targetLeft = brickPos.X - (ActualWidth - BRICK_WIDTH) / 2.0;
+        double targetTop = brickPos.Y - (ActualHeight - BRICK_HEIGHT) / 2.0;
+
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseInOut };
+        var duration = TimeSpan.FromMilliseconds(400);
+
+        var scaleXAnim = new DoubleAnimation(1, targetScaleX, duration)
+            { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var scaleYAnim = new DoubleAnimation(1, targetScaleY, duration)
+            { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var leftAnim = new DoubleAnimation(Left, targetLeft, duration)
+            { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var topAnim = new DoubleAnimation(Top, targetTop, duration)
+            { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var opacityAnim = new DoubleAnimation(1, 0, duration)
+            { EasingFunction = ease };
+
+        leftAnim.Completed += (_, _) => Left = targetLeft;
+        topAnim.Completed += (_, _) => Top = targetTop;
+        scaleXAnim.Completed += (_, _) => OuterScale.ScaleX = targetScaleX;
+        scaleYAnim.Completed += (_, _) => OuterScale.ScaleY = targetScaleY;
+        opacityAnim.Completed += (_, _) =>
+        {
+            _isMinimizingOrRestoring = false;
+            OuterGrid.IsHitTestVisible = true;
+            OuterScale.ScaleX = 1;
+            OuterScale.ScaleY = 1;
+            onComplete();
+        };
+
+        OuterScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleXAnim);
+        OuterScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleYAnim);
+        BeginAnimation(LeftProperty, leftAnim);
+        BeginAnimation(TopProperty, topAnim);
+        BeginAnimation(OpacityProperty, opacityAnim);
+    }
+
+    internal void AnimateFromBrick(System.Windows.Point brickPos, Action onComplete)
+    {
+        if (_isDestroying) return;
+        _isMinimizingOrRestoring = true;
+        StopIdle();
+        OuterGrid.IsHitTestVisible = false;
+
+        Show();
+        UpdateLayout();
+        FitHeight();
+
+        double startScaleX = BRICK_WIDTH / ActualWidth;
+        double startScaleY = BRICK_HEIGHT / ActualHeight;
+        double startLeft = brickPos.X - (ActualWidth - BRICK_WIDTH) / 2.0;
+        double startTop = brickPos.Y - (ActualHeight - BRICK_HEIGHT) / 2.0;
+
+        Left = startLeft;
+        Top = startTop;
+        OuterScale.ScaleX = startScaleX;
+        OuterScale.ScaleY = startScaleY;
+        Opacity = 0;
+
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+        var duration = TimeSpan.FromMilliseconds(400);
+
+        var scaleXAnim = new DoubleAnimation(startScaleX, 1, duration)
+            { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var scaleYAnim = new DoubleAnimation(startScaleY, 1, duration)
+            { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var leftAnim = new DoubleAnimation(startLeft, _data.X, duration)
+            { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var topAnim = new DoubleAnimation(startTop, _data.Y, duration)
+            { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var opacityAnim = new DoubleAnimation(0, 1, duration)
+            { EasingFunction = ease };
+
+        leftAnim.Completed += (_, _) => Left = _data.X;
+        topAnim.Completed += (_, _) => Top = _data.Y;
+        scaleXAnim.Completed += (_, _) => OuterScale.ScaleX = 1;
+        scaleYAnim.Completed += (_, _) => OuterScale.ScaleY = 1;
+        opacityAnim.Completed += (_, _) =>
+        {
+            _isMinimizingOrRestoring = false;
+            OuterGrid.IsHitTestVisible = true;
+            StartIdle();
+            onComplete();
+        };
+
+        OuterScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleXAnim);
+        OuterScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleYAnim);
+        BeginAnimation(LeftProperty, leftAnim);
+        BeginAnimation(TopProperty, topAnim);
+        BeginAnimation(OpacityProperty, opacityAnim);
+    }
+
     private double DoneButtonX() => Left + Width  / 2 - 65;
     private double DoneButtonY() => Top  + Height + 10;
 
@@ -1118,9 +1267,8 @@ public partial class StickerWindow : Window
     // ── Persistence ───────────────────────────────────────────────────────
     private void PersistBounds()
     {
-        if (_isDestroying || _isDragging) return;
+        if (_isDestroying || _isDragging || _isMinimizingOrRestoring) return;
         _data.X = Left; _data.Y = Top;
-        _data.Width = Width; _data.Height = Height;
         StickerStore.Save(_data);
     }
 
@@ -1197,11 +1345,14 @@ public partial class StickerWindow : Window
         ContentPanel.Visibility      = Visibility.Collapsed;
         PendingText.Visibility       = Visibility.Collapsed;
         TimerText.Visibility         = Visibility.Collapsed;
+        EstimateBadge.Visibility     = Visibility.Collapsed;
+        EstimateEditBadge.Visibility = Visibility.Collapsed;
         LockIcon.Visibility          = Visibility.Collapsed;
         RefreshBtn.Visibility        = Visibility.Collapsed;
         ResetDotsPanel.Visibility    = Visibility.Collapsed;
         DestroyBtn.Visibility        = Visibility.Collapsed;
-        ActiveToggle.Visibility      = Visibility.Collapsed;
+        MinimizeBtn.Visibility       = Visibility.Collapsed;
+        ToggleGrid.Visibility        = Visibility.Collapsed;
         RuleTextBlock.Visibility     = Visibility.Visible;
         RuleTextBlock.Text           = _data.Title;
         _timerDispatcher.Stop();
@@ -1258,5 +1409,79 @@ public partial class StickerWindow : Window
         Animate(_scaleT, ScaleTransform.ScaleYProperty, _scaleT.ScaleY, 0.7, 280, shrinkEase);
 
         BeginAnimation(OpacityProperty, fade);
+    }
+
+    // ── Estimated time editing ────────────────────────────────────────────
+    private void BeginEstimateEdit()
+    {
+        CommitInput();
+        if (_editingTask != null) CommitInput();
+        _editingEstimate = true;
+        _inputBuffer.Clear();
+        _inputBuffer.Append(_data.EstimatedMinutes?.ToString() ?? "");
+        _cursorPos = _inputBuffer.Length;
+        _selAnchor = -1;
+        UpdatePendingText();
+    }
+
+    private void CommitEstimate()
+    {
+        var raw = _inputBuffer.ToString().Trim();
+        if (int.TryParse(raw, out var mins) && mins > 0)
+            _data.EstimatedMinutes = mins;
+        else
+            _data.EstimatedMinutes = null;
+        StickerStore.Save(_data);
+        CancelEstimate();
+    }
+
+    private void CancelEstimate()
+    {
+        _editingEstimate = false;
+        ResetBuffer();
+        UpdatePendingText();
+    }
+
+    private void UpdateEstimateDisplay()
+    {
+        if (_data.EstimatedMinutes.HasValue)
+            EstimateText.Text = $"⏱ {_data.EstimatedMinutes}m";
+        else
+            EstimateText.Text = "⏱ --";
+    }
+
+    private void OnEstimatePreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        e.Handled = true; // prevent sticker drag
+        if (e.ClickCount == 2)
+            BeginEstimateEdit();
+    }
+
+    internal void RecalcHeight() => FitHeight();
+
+    private void UpdateProgressRing()
+    {
+        int total = _data.Tasks.Count;
+        if (total == 0)
+        {
+            ProgressRing.Visibility = Visibility.Collapsed;
+            return;
+        }
+        int done = _data.Tasks.Count(t => t.Done);
+        double progress = done / (double)total;
+
+        // StrokeDashArray units are multiples of StrokeThickness
+        double unit = ProgressRing.StrokeThickness;
+        double circumference = Math.PI * ProgressRing.Width / unit;
+        double filled = progress * circumference;
+
+        ProgressRing.StrokeDashArray = new DoubleCollection { filled, Math.Max(0, circumference - filled) };
+        ProgressRing.StrokeDashOffset = 0;
+
+        var color = progress >= 1.0
+            ? Color.FromRgb(0x4A, 0xDE, 0x80)
+            : Color.FromRgb(0x94, 0x94, 0xA4);
+        ProgressRing.Stroke = new SolidColorBrush(color);
+        ProgressRing.Visibility = Visibility.Visible;
     }
 }

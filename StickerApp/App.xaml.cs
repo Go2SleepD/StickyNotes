@@ -23,6 +23,8 @@ public partial class App : System.Windows.Application
     private Win32.LowLevelMouseProc    _mouseProc    = null!;
     private Win32.LowLevelKeyboardProc _keyboardProc = null!;
     private readonly List<StickerWindow> _stickers = [];
+    private readonly List<BrickWindow> _bricks = [];
+    private readonly Dictionary<string, BrickWindow> _brickByStickerId = [];
     private DateTime _lastStickerCreated = DateTime.MinValue;
     private StickerWindow? _primaryDragger;
     private readonly List<(StickerWindow Win, double Dx, double Dy)> _groupFollowers = [];
@@ -72,7 +74,7 @@ public partial class App : System.Windows.Application
             }
         }
 
-        if (Settings.RubberBallEnabled) RubberBallWindow.Spawn();
+        // Rubber ball + dog are hidden by default; toggled via Mouse5 + '+'
     }
 
     // ── Tray ──────────────────────────────────────────────────────────────
@@ -221,10 +223,22 @@ public partial class App : System.Windows.Application
 
     private void ForceEndAllDrags() => EndCustomDrag();
 
+    private void ToggleDogAndBall()
+    {
+        if (RubberBallWindow.IsAlive)
+            RubberBallWindow.Despawn();
+        else
+            RubberBallWindow.Spawn();
+    }
+
     private void ClearDesk()
     {
         foreach (var s in _stickers.ToList())
             s.Destroy();
+        foreach (var b in _bricks.ToList())
+            b.Close();
+        _bricks.Clear();
+        _brickByStickerId.Clear();
     }
 
     private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -232,6 +246,13 @@ public partial class App : System.Windows.Application
         if (nCode >= 0 && (int)wParam == Win32.WM_KEYDOWN)
         {
             var kb = Win32.GetKbHookStruct(lParam);
+
+            if (_mb5Held && (kb.vkCode == Win32.VK_OEM_PLUS || kb.vkCode == Win32.VK_ADD))
+            {
+                Dispatcher.BeginInvoke(ToggleDogAndBall);
+                return new IntPtr(1);
+            }
+
             if (IsCursorOverSticker() && !IsSystemCombo(kb.vkCode))
             {
                 Dispatcher.BeginInvoke(() => GetStickerAtCursor()?.HandleKeyDown(kb));
@@ -259,13 +280,21 @@ public partial class App : System.Windows.Application
     private bool IsCursorOverSticker()
     {
         Win32.GetCursorPos(out var pt);
-        return _stickers.Any(s => { var r = s.ContentRect; return pt.X >= r.Left && pt.X <= r.Right && pt.Y >= r.Top && pt.Y <= r.Bottom; });
+        return _stickers.Where(s => s.IsVisible).Any(s =>
+        {
+            var r = s.ContentRect;
+            return pt.X >= r.Left && pt.X <= r.Right && pt.Y >= r.Top && pt.Y <= r.Bottom;
+        });
     }
 
     private StickerWindow? GetStickerAtCursor()
     {
         Win32.GetCursorPos(out var pt);
-        return _stickers.FirstOrDefault(s => { var r = s.ContentRect; return pt.X >= r.Left && pt.X <= r.Right && pt.Y >= r.Top && pt.Y <= r.Bottom; });
+        return _stickers.Where(s => s.IsVisible).FirstOrDefault(s =>
+        {
+            var r = s.ContentRect;
+            return pt.X >= r.Left && pt.X <= r.Right && pt.Y >= r.Top && pt.Y <= r.Bottom;
+        });
     }
 
     // ── Group drag ────────────────────────────────────────────────────────
@@ -330,6 +359,13 @@ public partial class App : System.Windows.Application
     {
         foreach (var data in StickerStore.LoadAll())
             OpenSticker(data);
+
+        // Force height recalc after all items have rendered
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+        {
+            foreach (var s in _stickers)
+                s.RecalcHeight();
+        });
     }
 
     private void TryCreateSticker(System.Windows.Point spawnPoint)
@@ -363,7 +399,21 @@ public partial class App : System.Windows.Application
         var win = new StickerWindow(data);
         win.Destroyed += OnStickerDestroyed;
         _stickers.Add(win);
-        win.Show();
+
+        if (data.IsMinimized)
+        {
+            // Keep the sticker window hidden; show a brick instead
+            var pos = GetNextBrickPosition();
+            var brick = new BrickWindow(data, pos);
+            brick.ExpandRequested += () => RestoreStickerFromBrick(win, brick);
+            _bricks.Add(brick);
+            _brickByStickerId[data.Id] = brick;
+            brick.Show();
+        }
+        else
+        {
+            win.Show();
+        }
     }
 
     public void RestoreSticker(StickerData data)
@@ -376,11 +426,74 @@ public partial class App : System.Windows.Application
     private void OnStickerDestroyed(StickerWindow win)
     {
         _stickers.Remove(win);
+        if (_brickByStickerId.Remove(win.Data.Id, out var brick))
+        {
+            _bricks.Remove(brick);
+            brick.Close();
+            RepositionBricks();
+        }
         UpdateTrayTooltip();
     }
 
+    internal void MinimizeSticker(StickerWindow sticker)
+    {
+        if (sticker.Data.IsMinimized) return;
+        sticker.Data.IsMinimized = true;
+        StickerStore.Save(sticker.Data);
+
+        var pos = GetNextBrickPosition();
+        var brick = new BrickWindow(sticker.Data, pos);
+        brick.ExpandRequested += () => RestoreStickerFromBrick(sticker, brick);
+        _bricks.Add(brick);
+        _brickByStickerId[sticker.Data.Id] = brick;
+        brick.Show();
+
+        sticker.AnimateToBrick(pos, () => sticker.Hide());
+        UpdateTrayTooltip();
+    }
+
+    private void RestoreStickerFromBrick(StickerWindow sticker, BrickWindow brick)
+    {
+        if (!sticker.Data.IsMinimized) return;
+        _bricks.Remove(brick);
+        _brickByStickerId.Remove(sticker.Data.Id);
+
+        sticker.Data.IsMinimized = false;
+        StickerStore.Save(sticker.Data);
+
+        var brickPos = new System.Windows.Point(brick.Left, brick.Top);
+
+        // Fade out brick
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(200))
+            { FillBehavior = FillBehavior.Stop };
+        fade.Completed += (_, _) => brick.Close();
+        brick.BeginAnimation(System.Windows.UIElement.OpacityProperty, fade);
+
+        sticker.AnimateFromBrick(brickPos, () => { });
+        RepositionBricks();
+        UpdateTrayTooltip();
+    }
+
+    private System.Windows.Point GetNextBrickPosition()
+    {
+        var area = SystemParameters.WorkArea;
+        double x = area.Left;
+        double y = area.Bottom - StickerWindow.BRICK_HEIGHT * (_bricks.Count + 1);
+        return new System.Windows.Point(x, y);
+    }
+
+    private void RepositionBricks()
+    {
+        var area = SystemParameters.WorkArea;
+        for (int i = 0; i < _bricks.Count; i++)
+        {
+            double targetY = area.Bottom - StickerWindow.BRICK_HEIGHT * (i + 1);
+            _bricks[i].AnimateToY(targetY);
+        }
+    }
+
     private void UpdateTrayTooltip() =>
-        _tray.Text = $"StickerApp — {_stickers.Count} стикер(ов)  •  Ctrl+Shift+Mouse5 | Mouse5 над стикером — удалить";
+        _tray.Text = $"StickerApp — {_stickers.Count(s => s.IsVisible)} стикер(ов), {_bricks.Count} свёрнуто  •  Ctrl+Shift+Mouse5 | Mouse5 над стикером — удалить";
 
     // ── Z-order management ────────────────────────────────────────────────
     internal void BringToFront(StickerWindow win)

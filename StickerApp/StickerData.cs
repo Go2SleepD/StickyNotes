@@ -49,16 +49,21 @@ public class TaskItem : INotifyPropertyChanged
 public class StickerData
 {
     public string Id          { get; set; } = Guid.NewGuid().ToString();
+    [JsonIgnore]
     public string Title       { get; set; } = "Tasks";
     public string AccentColor { get; set; } = "#5E6AD2";
     public double X           { get; set; }
     public double Y           { get; set; }
+    [JsonIgnore]
     public double Width       { get; set; } = 260;
+    [JsonIgnore]
     public double Height      { get; set; } = 260;
     public DateTime CreatedAt   { get; set; } = DateTime.UtcNow;
     public int      ResetCount  { get; set; } = 0;
     public string?  OutlineColor { get; set; }
     public bool     IsRule       { get; set; }
     public bool     IsActive     { get; set; } = true;
+    public bool     IsMinimized  { get; set; }
+    public int?     EstimatedMinutes { get; set; }
     public ObservableCollection<TaskItem> Tasks { get; set; } = [];
 }

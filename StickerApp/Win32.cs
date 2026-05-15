@@ -36,8 +36,10 @@ public static class Win32
     public const int VK_SHIFT  = 0x10;
     public const int VK_CTRL   = 0x11;
     public const int VK_ALT    = 0x12;
-    public const int VK_WIN_L  = 0x5B;
-    public const int VK_WIN_R  = 0x5C;
+    public const int VK_WIN_L   = 0x5B;
+    public const int VK_WIN_R   = 0x5C;
+    public const int VK_OEM_PLUS = 0xBB;
+    public const int VK_ADD      = 0x6B;
 
     // Window styles
     public const int GWL_EXSTYLE     = -20;

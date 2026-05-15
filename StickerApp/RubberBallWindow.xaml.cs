@@ -522,7 +522,6 @@ public partial class RubberBallWindow : Window
 
         UpdateTransforms();
         UpdateParticles(dt);
-        UpdateTrajectory();
         CheckProximity();
 
         if (!_grabbing
