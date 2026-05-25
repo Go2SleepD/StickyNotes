@@ -91,9 +91,10 @@ public partial class StickerWindow : Window
     public const double BRICK_WIDTH = 65;
     public const double BRICK_HEIGHT = 20;
 
-    // ── Input keyboard layout (override; shared across all stickers) ─────
-    private static IntPtr _inputLayout;        // IntPtr.Zero = follow foreground window
-    private static IntPtr[] _availableLayouts = [];
+    // ── Input keyboard layout chip ────────────────────────────────────────
+    // Layout is read from the foreground window's thread. The OS handles
+    // layout switching (Alt+Shift / Ctrl+Shift / Win+Space) — we just reflect
+    // whatever raskladka is currently active.
     private static readonly SolidColorBrush _langChipBrush =
         new(Color.FromArgb(0xCC, 0x9B, 0xA3, 0xFF));
 
@@ -227,7 +228,8 @@ public partial class StickerWindow : Window
     // ── Content bounds (screen logical, margin-adjusted) ──────────────────
     public System.Windows.Rect ContentRect =>
         new(Left + BorderSize, Top + BorderSize,
-            ActualWidth - BorderSize * 2, ActualHeight - BorderSize * 2);
+            Math.Max(0, ActualWidth - BorderSize * 2),
+            Math.Max(0, ActualHeight - BorderSize * 2));
 
     // ── Animations ────────────────────────────────────────────────────────
     private void PlaySpawn()
@@ -658,19 +660,17 @@ public partial class StickerWindow : Window
     }
 
     // ── Hover keyboard input ─────────────────────────────────────────────
-    public void HandleKeyDown(Win32.KBDLLHOOKSTRUCT kb)
+    // Modifier flags + foreground layout are captured by the keyboard hook
+    // synchronously and handed in here — never re-read them via
+    // GetAsyncKeyState from this method, which runs on the dispatcher after a
+    // short delay and would race against key-release events.
+    public void HandleKeyDown(Win32.KBDLLHOOKSTRUCT kb,
+                              bool shift, bool ctrl, bool alt, bool capsToggle,
+                              IntPtr layout)
     {
         uint vk = kb.vkCode;
 
-        // Ctrl+Shift cycles the input keyboard layout
-        if (vk == Win32.VK_SHIFT && Win32.IsKeyDown(Win32.VK_CTRL)) { CycleInputLayout(); return; }
-        if (vk == Win32.VK_CTRL  && Win32.IsKeyDown(Win32.VK_SHIFT)) { CycleInputLayout(); return; }
-
-        if (vk is Win32.VK_SHIFT or Win32.VK_CTRL or Win32.VK_ALT
-                or Win32.VK_WIN_L or Win32.VK_WIN_R) return;
-
-        bool ctrl  = Win32.IsKeyDown(Win32.VK_CTRL);
-        bool shift = Win32.IsKeyDown(Win32.VK_SHIFT);
+        if (Win32.IsModifierVk(vk)) return;
 
         if (_editingEstimate)
         {
@@ -707,46 +707,26 @@ public partial class StickerWindow : Window
             return;
         }
 
+        // GetKeyboardState reflects the calling thread's input queue, which
+        // from a low-level hook context lags behind real physical state —
+        // capital letters and shifted ASCII symbols ('(', ')', '!', '@', ...)
+        // were silently dropped. Build the state from the snapshot captured by
+        // the hook callback (shift/ctrl/alt/capsToggle) instead.
         var keyState = new byte[256];
-        Win32.GetKeyboardState(keyState);
-        var layout = _inputLayout != IntPtr.Zero
-            ? _inputLayout
-            : Win32.GetKeyboardLayout(
-                Win32.GetWindowThreadProcessId(Win32.GetForegroundWindow(), IntPtr.Zero));
-        var buf    = new StringBuilder(4);
-        int count  = Win32.ToUnicodeEx(vk, kb.scanCode, keyState, buf, buf.Capacity, 0, layout);
+        if (shift)      keyState[Win32.VK_SHIFT]   = 0x80;
+        if (ctrl)       keyState[Win32.VK_CTRL]    = 0x80;
+        if (alt)        keyState[Win32.VK_ALT]     = 0x80;
+        if (capsToggle) keyState[Win32.VK_CAPITAL] = 0x01;
+
+        var buf   = new StringBuilder(4);
+        int count = Win32.ToUnicodeEx(vk, kb.scanCode, keyState, buf, buf.Capacity, 0, layout);
         if (count > 0) InsertText(buf.ToString(0, count));
-    }
-
-    private void CycleInputLayout()
-    {
-        if (_availableLayouts.Length == 0)
-        {
-            int n = Win32.GetKeyboardLayoutList(0, []);
-            if (n <= 0) return;
-            var list = new IntPtr[n];
-            Win32.GetKeyboardLayoutList(n, list);
-            _availableLayouts = list;
-        }
-        if (_availableLayouts.Length < 2) return;
-
-        IntPtr current = _inputLayout != IntPtr.Zero
-            ? _inputLayout
-            : Win32.GetKeyboardLayout(
-                Win32.GetWindowThreadProcessId(Win32.GetForegroundWindow(), IntPtr.Zero));
-
-        int idx = Array.IndexOf(_availableLayouts, current);
-        idx = (idx + 1) % _availableLayouts.Length;
-        _inputLayout = _availableLayouts[idx];
-        UpdatePendingText();
     }
 
     private static string CurrentLayoutCode()
     {
-        var layout = _inputLayout != IntPtr.Zero
-            ? _inputLayout
-            : Win32.GetKeyboardLayout(
-                Win32.GetWindowThreadProcessId(Win32.GetForegroundWindow(), IntPtr.Zero));
+        var layout = Win32.GetKeyboardLayout(
+            Win32.GetWindowThreadProcessId(Win32.GetForegroundWindow(), IntPtr.Zero));
         int langId = (int)((uint)layout.ToInt64() & 0xFFFF);
         try
         {

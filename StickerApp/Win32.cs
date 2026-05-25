@@ -36,8 +36,26 @@ public static class Win32
     public const int VK_SHIFT  = 0x10;
     public const int VK_CTRL   = 0x11;
     public const int VK_ALT    = 0x12;
+    // Low-level keyboard hook delivers L/R-specific virtual key codes for the
+    // modifier keys instead of the merged 0x10/0x11/0x12 codes, so anything
+    // that filters modifier keystrokes must include both variants.
+    public const int VK_LSHIFT   = 0xA0;
+    public const int VK_RSHIFT   = 0xA1;
+    public const int VK_LCONTROL = 0xA2;
+    public const int VK_RCONTROL = 0xA3;
+    public const int VK_LMENU    = 0xA4;
+    public const int VK_RMENU    = 0xA5;
     public const int VK_WIN_L   = 0x5B;
     public const int VK_WIN_R   = 0x5C;
+    public const int VK_CAPITAL = 0x14;
+    public const int VK_SPACE   = 0x20;
+
+    public static bool IsModifierVk(uint vk) =>
+        vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT
+        || vk == VK_CTRL || vk == VK_LCONTROL || vk == VK_RCONTROL
+        || vk == VK_ALT  || vk == VK_LMENU    || vk == VK_RMENU
+        || vk == VK_WIN_L || vk == VK_WIN_R
+        || vk == VK_CAPITAL;
     public const int VK_OEM_PLUS = 0xBB;
     public const int VK_ADD      = 0x6B;
 

@@ -255,7 +255,19 @@ public partial class App : System.Windows.Application
 
             if (IsCursorOverSticker() && !IsSystemCombo(kb.vkCode))
             {
-                Dispatcher.BeginInvoke(() => GetStickerAtCursor()?.HandleKeyDown(kb));
+                // Snapshot modifier state + active layout SYNCHRONOUSLY here.
+                // Reading them later inside HandleKeyDown (after BeginInvoke)
+                // races against the user releasing Shift between key events —
+                // which silently broke Shift+digit, capital letters, etc.
+                bool shift = Win32.IsKeyDown(Win32.VK_SHIFT);
+                bool ctrl  = Win32.IsKeyDown(Win32.VK_CTRL);
+                bool alt   = Win32.IsKeyDown(Win32.VK_ALT);
+                bool caps  = (Win32.GetKeyState(Win32.VK_CAPITAL) & 0x0001) != 0;
+                IntPtr layout = Win32.GetKeyboardLayout(
+                    Win32.GetWindowThreadProcessId(Win32.GetForegroundWindow(), IntPtr.Zero));
+                var capturedKb = kb;
+                Dispatcher.BeginInvoke(() =>
+                    GetStickerAtCursor()?.HandleKeyDown(capturedKb, shift, ctrl, alt, caps, layout));
                 return new IntPtr(1);
             }
         }
@@ -274,6 +286,14 @@ public partial class App : System.Windows.Application
         if (alt   && vk == Win32.VK_TAB)    return true;
         if (alt   && vk == Win32.VK_F4)     return true;
         if (ctrl  && shift && vk == Win32.VK_ESCAPE) return true;
+
+        // Pass bare modifier + CapsLock keystrokes (in both their merged and
+        // L/R-specific forms — the low-level hook delivers the latter) through
+        // to the OS so the standard layout-switch combos (Alt+Shift,
+        // Ctrl+Shift, Win+Space) and CapsLock toggle can be processed even
+        // while the cursor sits over a sticker.
+        if (Win32.IsModifierVk(vk)) return true;
+
         return false;
     }
 
@@ -306,7 +326,7 @@ public partial class App : System.Windows.Application
         _groupFollowers.Add((primary, primary.Left - pt.X, primary.Top - pt.Y));
         foreach (var s in _stickers)
         {
-            if (ReferenceEquals(s, primary)) continue;
+            if (ReferenceEquals(s, primary) || !s.IsVisible) continue;
             var r = s.ContentRect;
             if (pt.X >= r.Left && pt.X <= r.Right && pt.Y >= r.Top && pt.Y <= r.Bottom)
             {
